@@ -1,7 +1,6 @@
 export type BridgeSettings = {
   glympseSource: string;
   caltopoConnectKey: string;
-  caltopoDeviceId: string;
   pollIntervalSecs: number;
   forwardUnchanged: boolean;
   includeAltitude: boolean;

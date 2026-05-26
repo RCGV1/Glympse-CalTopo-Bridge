@@ -7,7 +7,8 @@ Cross-platform Tauri desktop app that polls a Glympse share and forwards the new
 - Reads Glympse share links, invite codes, and public `!tag` sources through Glympse's anonymous viewer flow.
 - Parses Glympse ticket streams, tagged-map group members, embedded coordinate payloads, and common JSON coordinate shapes.
 - Sends each active Glympse user to CalTopo as a separate live track when Glympse provides a display name.
-- Falls back to a manual CalTopo track ID, then to `Glympse`, when a source does not expose a usable user name.
+- Derives every CalTopo track ID from the Glympse user or track name so large groups do not collapse into one shared track.
+- Does not forward unnamed or generic parsed fixes; those are reported as failed rows so the rest of the group can continue.
 - Skips unchanged fixes by default so CalTopo is not spammed with duplicate reports.
 - Redacts OAuth tokens, API keys, and passwords from diagnostics.
 
@@ -45,7 +46,7 @@ https://caltopo.com/api/v1/position/report/{CONNECT_KEY}?id={TRACK_ID}&lat={LAT}
 
 Enter the CalTopo connect key in the app. The app derives `TRACK_ID` from each Glympse display name when possible and strips spaces, hyphens, and other non-alphanumeric characters because those IDs bind more reliably in CalTopo.
 
-Use the optional CalTopo ID fallback when a source has no usable Glympse display name.
+The bridge never invents a substitute track ID. If Glympse does not expose a usable name for a fix, that fix is skipped and reported while other named group members keep forwarding.
 
 ## Glympse Setup
 
@@ -56,7 +57,7 @@ For a true live test, create an active Glympse from the mobile app or join a pub
 ## Release
 
 ```bash
-git tag v0.1.0
+git tag vX.Y.Z
 git push origin main --tags
 ```
 

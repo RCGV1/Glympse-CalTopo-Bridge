@@ -23,7 +23,6 @@ const SETTINGS_KEY = "glympse-caltopo-bridge.settings.v1";
 const defaultSettings: BridgeSettings = {
   glympseSource: "",
   caltopoConnectKey: "",
-  caltopoDeviceId: "",
   pollIntervalSecs: 5,
   forwardUnchanged: false,
   includeAltitude: true
@@ -106,7 +105,7 @@ export function App() {
   const lastForward = forwards[0] ?? null;
   const activityItems = buildActivityItems(forwards, logs);
   const latestLocation = latestLocations[0] ?? null;
-  const caltopoIdPreview = buildCaltopoIdPreview(settings, latestLocation);
+  const caltopoIdPreview = buildCaltopoIdPreview(latestLocation);
   const preflightChecks = buildPreflightChecks(settings, latestLocation);
 
   function updateSetting<K extends keyof BridgeSettings>(key: K, value: BridgeSettings[K]) {
@@ -225,34 +224,20 @@ export function App() {
             />
           </label>
 
-          <div className="field-grid">
-            <label className="field">
-              <span>CalTopo live-track connect key</span>
-              <input
-                value={settings.caltopoConnectKey}
-                onChange={(event) => updateSetting("caltopoConnectKey", event.target.value)}
-                placeholder="Connect key"
-                autoCapitalize="none"
-                spellCheck={false}
-              />
-            </label>
-
-            <label className="field">
-              <span>
-                CalTopo ID fallback <small>optional</small>
-              </span>
-              <input
-                value={settings.caltopoDeviceId}
-                onChange={(event) => updateSetting("caltopoDeviceId", event.target.value)}
-                placeholder="Fallback track ID"
-                autoCapitalize="none"
-                spellCheck={false}
-              />
-            </label>
-          </div>
+          <label className="field">
+            <span>CalTopo live-track connect key</span>
+            <input
+              value={settings.caltopoConnectKey}
+              onChange={(event) => updateSetting("caltopoConnectKey", event.target.value)}
+              placeholder="Connect key"
+              autoCapitalize="none"
+              spellCheck={false}
+            />
+          </label>
 
           <p className="setup-hint compact">
-            Next CalTopo track ID: <strong>{caltopoIdPreview.value}</strong> ({caltopoIdPreview.label}).
+            CalTopo track IDs come from Glympse names. Current preview:{" "}
+            <strong>{caltopoIdPreview.value}</strong> ({caltopoIdPreview.label}).
           </p>
 
           <details className="advanced-options">
@@ -398,11 +383,16 @@ export function App() {
               <div className="tracked-list">
                 {latestLocations.map((location) => {
                   const name = location.sourceLabel || "Unnamed Glympse user";
+                  const trackPreview = buildCaltopoIdPreview(location);
+                  const statusText =
+                    trackPreview.source === "glympse"
+                      ? `Forwarded as CalTopo track ${trackPreview.value}`
+                      : "Not forwarded until Glympse provides a usable name";
                   return (
                     <div className="tracked-item" key={`${name}-${location.lat}-${location.lng}`}>
                       <div>
                         <strong>{name}</strong>
-                        <span>Forwarded as its own CalTopo live track</span>
+                        <span>{statusText}</span>
                       </div>
                       <span>{formatCoordinates(location)}</span>
                     </div>

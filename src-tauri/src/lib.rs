@@ -19,8 +19,6 @@ const GLYMPSE_VIEWER_API_KEY: &str = "0SLq661pXHmqdWgI8Yb1";
 pub struct BridgeSettings {
     pub glympse_source: String,
     pub caltopo_connect_key: String,
-    #[serde(default)]
-    pub caltopo_device_id: String,
     pub poll_interval_secs: u64,
     pub forward_unchanged: bool,
     pub include_altitude: bool,
@@ -254,7 +252,21 @@ async fn poll_and_forward(
     let mut forwards = Vec::new();
 
     for location in &fetch.locations {
-        let caltopo_id = caltopo_id_for_location(settings, location)?;
+        let caltopo_id = match caltopo_id_for_location(location) {
+            Ok(caltopo_id) => caltopo_id,
+            Err(error) => {
+                forwards.push(ForwardEvent {
+                    caltopo_id: "not-forwarded".to_string(),
+                    source_label: location.source_label.clone(),
+                    lat: location.lat,
+                    lng: location.lng,
+                    status: "failed".to_string(),
+                    message: error,
+                    timestamp_ms: now_ms(),
+                });
+                continue;
+            }
+        };
         let signature = location_signature(location);
 
         if !settings.forward_unchanged
@@ -313,6 +325,12 @@ struct GlympseFetch {
     locations: Vec<LocationFix>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GlympseInvite {
+    code: String,
+    label: Option<String>,
+}
+
 async fn fetch_glympse_locations(
     http: &Client,
     settings: &BridgeSettings,
@@ -326,7 +344,7 @@ async fn fetch_glympse_locations(
         }
     }
 
-    let mut urls = build_glympse_request_urls(
+    let urls = build_glympse_request_urls(
         &settings.glympse_source,
         None,
         context.viewer_token.as_deref(),
@@ -335,7 +353,7 @@ async fn fetch_glympse_locations(
         return Err("Enter a Glympse share URL or invite code".to_string());
     }
 
-    let mut seen_urls = urls.clone();
+    let mut member_invites = Vec::new();
     let mut locations = Vec::new();
     let mut index = 0;
     while index < urls.len() {
@@ -357,12 +375,7 @@ async fn fetch_glympse_locations(
                     continue;
                 }
 
-                append_glympse_invite_urls(
-                    &mut urls,
-                    &mut seen_urls,
-                    extract_group_invite_codes(&text),
-                    context.viewer_token.as_deref(),
-                );
+                member_invites.extend(extract_group_invites(&text));
 
                 match parse_glympse_response(&text) {
                     Ok((location, _next_token)) => {
@@ -375,6 +388,17 @@ async fn fetch_glympse_locations(
         }
     }
 
+    let member_fetch = fetch_group_member_locations(
+        http,
+        dedupe_invites(member_invites),
+        context.viewer_token.as_deref(),
+    )
+    .await;
+    errors.extend(member_fetch.errors);
+    for location in member_fetch.locations {
+        merge_location(&mut locations, location);
+    }
+
     if locations.is_empty() {
         Err(format!(
             "Could not read a location from the Glympse source. {}",
@@ -382,6 +406,99 @@ async fn fetch_glympse_locations(
         ))
     } else {
         Ok(GlympseFetch { locations })
+    }
+}
+
+struct MemberFetch {
+    locations: Vec<LocationFix>,
+    errors: Vec<String>,
+}
+
+async fn fetch_group_member_locations(
+    http: &Client,
+    invites: Vec<GlympseInvite>,
+    viewer_token: Option<&str>,
+) -> MemberFetch {
+    if invites.is_empty() {
+        return MemberFetch {
+            locations: Vec::new(),
+            errors: Vec::new(),
+        };
+    }
+
+    let mut locations = Vec::new();
+    let mut errors = Vec::new();
+
+    for chunk in invites.chunks(16) {
+        let mut tasks = Vec::new();
+        for invite in chunk {
+            let http = http.clone();
+            let invite = invite.clone();
+            let viewer_token = viewer_token.map(ToString::to_string);
+            tasks.push(tauri::async_runtime::spawn(async move {
+                fetch_group_member_location(&http, invite, viewer_token.as_deref()).await
+            }));
+        }
+
+        for task in tasks {
+            match task.await {
+                Ok(member_fetch) => {
+                    errors.extend(member_fetch.errors);
+                    for location in member_fetch.locations {
+                        merge_location(&mut locations, location);
+                    }
+                }
+                Err(error) => errors.push(format!("Glympse member lookup task failed: {error}")),
+            }
+        }
+    }
+
+    MemberFetch { locations, errors }
+}
+
+async fn fetch_group_member_location(
+    http: &Client,
+    invite: GlympseInvite,
+    viewer_token: Option<&str>,
+) -> MemberFetch {
+    let mut errors = Vec::new();
+    for url in build_glympse_member_request_urls(&invite.code, viewer_token) {
+        match glympse_get(http, &url, viewer_token).send().await {
+            Ok(response) => {
+                let status = response.status();
+                let text = match response.text().await {
+                    Ok(text) => text,
+                    Err(error) => {
+                        errors.push(format!(
+                            "Failed reading Glympse member response for {}: {error}",
+                            invite.code
+                        ));
+                        continue;
+                    }
+                };
+                if !status.is_success() {
+                    errors.push(format!("{} returned HTTP {status}", redact_url(&url)));
+                    continue;
+                }
+
+                match parse_glympse_response(&text) {
+                    Ok((mut location, _next_token)) => {
+                        apply_source_label_hint(&mut location, invite.label.as_deref());
+                        return MemberFetch {
+                            locations: vec![location],
+                            errors,
+                        };
+                    }
+                    Err(error) => errors.push(format!("{}: {error}", redact_url(&url))),
+                }
+            }
+            Err(error) => errors.push(format!("{}: {error}", redact_url(&url))),
+        }
+    }
+
+    MemberFetch {
+        locations: Vec::new(),
+        errors,
     }
 }
 
@@ -576,35 +693,55 @@ fn dedupe_strings(values: Vec<String>) -> Vec<String> {
     deduped
 }
 
-fn append_glympse_invite_urls(
-    urls: &mut Vec<String>,
-    seen_urls: &mut Vec<String>,
-    invite_codes: Vec<String>,
-    viewer_token: Option<&str>,
-) {
-    for invite_code in invite_codes {
-        for url in build_glympse_request_urls(&invite_code, None, viewer_token) {
-            if !seen_urls.contains(&url) {
-                seen_urls.push(url.clone());
-                urls.push(url);
-            }
-        }
+fn build_glympse_member_request_urls(invite_code: &str, viewer_token: Option<&str>) -> Vec<String> {
+    let trimmed = invite_code.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+
+    let encoded_code = urlencoding::encode(trimmed);
+    if viewer_token
+        .filter(|value| !value.trim().is_empty())
+        .is_some()
+    {
+        vec![format!(
+            "{GLYMPSE_API_BASE}invites/{encoded_code}?next=0&debug=true"
+        )]
+    } else {
+        vec![format!("{GLYMPSE_API_BASE}invites/{encoded_code}")]
     }
 }
 
-fn extract_group_invite_codes(text: &str) -> Vec<String> {
+fn dedupe_invites(invites: Vec<GlympseInvite>) -> Vec<GlympseInvite> {
+    let mut deduped: Vec<GlympseInvite> = Vec::new();
+    for invite in invites {
+        if let Some(existing) = deduped
+            .iter_mut()
+            .find(|candidate| candidate.code == invite.code)
+        {
+            if existing.label.is_none() && invite.label.is_some() {
+                existing.label = invite.label;
+            }
+        } else {
+            deduped.push(invite);
+        }
+    }
+    deduped
+}
+
+fn extract_group_invites(text: &str) -> Vec<GlympseInvite> {
     let Ok(value) = serde_json::from_str::<Value>(text) else {
         return Vec::new();
     };
 
-    let mut codes = Vec::new();
+    let mut invites = Vec::new();
     if let Some(response) = value.get("response").or_else(|| value.get("result")) {
-        collect_group_invite_codes(response, &mut codes);
+        collect_group_invites(response, &mut invites);
     }
-    dedupe_strings(codes)
+    dedupe_invites(invites)
 }
 
-fn collect_group_invite_codes(value: &Value, out: &mut Vec<String>) {
+fn collect_group_invites(value: &Value, out: &mut Vec<GlympseInvite>) {
     let Some(map) = value.as_object() else {
         return;
     };
@@ -616,7 +753,10 @@ fn collect_group_invite_codes(value: &Value, out: &mut Vec<String>) {
                 .and_then(Value::as_str)
                 .filter(|invite| !invite.trim().is_empty())
             {
-                out.push(invite.trim().to_string());
+                out.push(GlympseInvite {
+                    code: invite.trim().to_string(),
+                    label: glympse_member_label(member),
+                });
             }
         }
     }
@@ -633,11 +773,39 @@ fn collect_group_invite_codes(value: &Value, out: &mut Vec<String>) {
                     .and_then(Value::as_str)
                     .filter(|invite| !invite.trim().is_empty())
                 {
-                    out.push(invite.trim().to_string());
+                    out.push(GlympseInvite {
+                        code: invite.trim().to_string(),
+                        label: glympse_member_label(item),
+                    });
                 }
             }
         }
     }
+}
+
+fn glympse_member_label(value: &Value) -> Option<String> {
+    for key in [
+        "nickname",
+        "name",
+        "displayName",
+        "display_name",
+        "label",
+        "title",
+    ] {
+        if let Some(label) = value
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|label| !label.is_empty())
+        {
+            return Some(label.to_string());
+        }
+    }
+
+    value
+        .get("user")
+        .and_then(glympse_member_label)
+        .or_else(|| value.get("profile").and_then(glympse_member_label))
 }
 
 async fn run_glympse_diagnostics(http: &Client, settings: &BridgeSettings) -> GlympseDiagnostics {
@@ -659,7 +827,7 @@ async fn run_glympse_diagnostics(http: &Client, settings: &BridgeSettings) -> Gl
             None
         }
     };
-    let mut urls = build_glympse_request_urls(source, None, oauth_token.as_deref());
+    let urls = build_glympse_request_urls(source, None, oauth_token.as_deref());
 
     if urls.is_empty() {
         return GlympseDiagnostics {
@@ -672,7 +840,7 @@ async fn run_glympse_diagnostics(http: &Client, settings: &BridgeSettings) -> Gl
     }
 
     let mut parsed_location = None;
-    let mut seen_urls = urls.clone();
+    let mut member_invites = Vec::new();
     let mut index = 0;
     while index < urls.len() {
         let url = urls[index].clone();
@@ -688,14 +856,9 @@ async fn run_glympse_diagnostics(http: &Client, settings: &BridgeSettings) -> Gl
                     .map(ToString::to_string);
                 match response.text().await {
                     Ok(text) => {
-                        let discovered_invites = extract_group_invite_codes(&text);
+                        let discovered_invites = extract_group_invites(&text);
                         let discovered_count = discovered_invites.len();
-                        append_glympse_invite_urls(
-                            &mut urls,
-                            &mut seen_urls,
-                            discovered_invites,
-                            oauth_token.as_deref(),
-                        );
+                        member_invites.extend(discovered_invites);
 
                         match parse_glympse_response(&text) {
                             Ok((location, _)) => {
@@ -752,6 +915,73 @@ async fn run_glympse_diagnostics(http: &Client, settings: &BridgeSettings) -> Gl
                 message: error.to_string(),
                 response_preview: None,
             }),
+        }
+    }
+
+    for invite in dedupe_invites(member_invites) {
+        for url in build_glympse_member_request_urls(&invite.code, oauth_token.as_deref()) {
+            match glympse_get(http, &url, oauth_token.as_deref()).send().await {
+                Ok(response) => {
+                    let status = response.status();
+                    let content_type = response
+                        .headers()
+                        .get(reqwest::header::CONTENT_TYPE)
+                        .and_then(|value| value.to_str().ok())
+                        .map(ToString::to_string);
+                    match response.text().await {
+                        Ok(text) => match parse_glympse_response(&text) {
+                            Ok((mut location, _)) => {
+                                apply_source_label_hint(&mut location, invite.label.as_deref());
+                                if parsed_location.is_none() {
+                                    parsed_location = Some(location);
+                                }
+                                attempts.push(GlympseAttempt {
+                                    url: redact_url(&url),
+                                    status: Some(status.as_u16()),
+                                    ok: status.is_success(),
+                                    content_type,
+                                    parsed: true,
+                                    message: match &invite.label {
+                                        Some(label) => {
+                                            format!("Parsed a location for group member {label}")
+                                        }
+                                        None => "Parsed a location from a group member invite"
+                                            .to_string(),
+                                    },
+                                    response_preview: Some(response_preview(&text)),
+                                });
+                            }
+                            Err(error) => attempts.push(GlympseAttempt {
+                                url: redact_url(&url),
+                                status: Some(status.as_u16()),
+                                ok: status.is_success(),
+                                content_type,
+                                parsed: false,
+                                message: error,
+                                response_preview: Some(response_preview(&text)),
+                            }),
+                        },
+                        Err(error) => attempts.push(GlympseAttempt {
+                            url: redact_url(&url),
+                            status: Some(status.as_u16()),
+                            ok: status.is_success(),
+                            content_type,
+                            parsed: false,
+                            message: format!("Failed reading response body: {error}"),
+                            response_preview: None,
+                        }),
+                    }
+                }
+                Err(error) => attempts.push(GlympseAttempt {
+                    url: redact_url(&url),
+                    status: None,
+                    ok: false,
+                    content_type: None,
+                    parsed: false,
+                    message: error.to_string(),
+                    response_preview: None,
+                }),
+            }
         }
     }
 
@@ -951,6 +1181,23 @@ fn parse_glympse_response(text: &str) -> Result<(LocationFix, Option<String>), S
     }
 
     Err("Response did not contain recognizable lat/lng coordinates".to_string())
+}
+
+fn apply_source_label_hint(location: &mut LocationFix, label_hint: Option<&str>) {
+    let Some(label_hint) = label_hint
+        .map(str::trim)
+        .filter(|label_hint| !label_hint.is_empty())
+    else {
+        return;
+    };
+
+    if !location
+        .source_label
+        .as_deref()
+        .is_some_and(is_usable_glympse_identity)
+    {
+        location.source_label = Some(label_hint.to_string());
+    }
 }
 
 fn describe_glympse_response_without_location(value: &Value) -> Option<String> {
@@ -1391,22 +1638,17 @@ fn build_caltopo_url(
     url
 }
 
-fn caltopo_id_for_location(
-    settings: &BridgeSettings,
-    location: &LocationFix,
-) -> Result<String, String> {
-    let from_glympse_name = location
+fn caltopo_id_for_location(location: &LocationFix) -> Result<String, String> {
+    location
         .source_label
         .as_deref()
         .filter(|value| is_usable_glympse_identity(value))
         .map(normalize_caltopo_device_id)
-        .filter(|value| !value.is_empty());
-    let from_legacy_setting = Some(normalize_caltopo_device_id(&settings.caltopo_device_id))
-        .filter(|value| !value.is_empty());
-
-    Ok(from_glympse_name
-        .or(from_legacy_setting)
-        .unwrap_or_else(|| "Glympse".to_string()))
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            "Not forwarded: Glympse did not provide a usable user or track name for this fix"
+                .to_string()
+        })
 }
 
 fn is_usable_glympse_identity(value: &str) -> bool {
@@ -1450,6 +1692,7 @@ fn location_dedupe_key(location: &LocationFix) -> String {
     location
         .source_label
         .as_deref()
+        .filter(|value| is_usable_glympse_identity(value))
         .map(normalize_caltopo_device_id)
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| format!("{:.6}:{:.6}", location.lat, location.lng))
@@ -1526,7 +1769,6 @@ mod tests {
         BridgeSettings {
             glympse_source: "https://glympse.com/!ABC123".to_string(),
             caltopo_connect_key: "Sequoia".to_string(),
-            caltopo_device_id: "CAR 1".to_string(),
             poll_interval_secs: 5,
             forward_unchanged: false,
             include_altitude: true,
@@ -1755,8 +1997,17 @@ mod tests {
         }"#;
 
         assert_eq!(
-            extract_group_invite_codes(text),
-            vec!["FIRST123".to_string(), "SECOND456".to_string()]
+            extract_group_invites(text),
+            vec![
+                GlympseInvite {
+                    code: "FIRST123".to_string(),
+                    label: Some("Lead".to_string()),
+                },
+                GlympseInvite {
+                    code: "SECOND456".to_string(),
+                    label: Some("Sweep".to_string()),
+                },
+            ]
         );
     }
 
@@ -1774,35 +2025,72 @@ mod tests {
         }"#;
 
         assert_eq!(
-            extract_group_invite_codes(text),
-            vec!["ACTIVE123".to_string(), "SWAPPED456".to_string()]
+            extract_group_invites(text),
+            vec![
+                GlympseInvite {
+                    code: "ACTIVE123".to_string(),
+                    label: None,
+                },
+                GlympseInvite {
+                    code: "SWAPPED456".to_string(),
+                    label: None,
+                },
+            ]
         );
     }
 
     #[test]
-    fn appends_discovered_member_invite_urls_once() {
-        let mut urls = vec!["https://api.glympse.com/v2/groups/Sequoia2026".to_string()];
-        let mut seen = urls.clone();
-        append_glympse_invite_urls(
-            &mut urls,
-            &mut seen,
-            vec!["MEMBER123".to_string(), "MEMBER123".to_string()],
-            Some("TOKEN"),
-        );
-
+    fn builds_one_authenticated_member_invite_url_for_group_members() {
+        let urls = build_glympse_member_request_urls("MEMBER123", Some("TOKEN"));
         assert_eq!(
-            urls.iter()
-                .filter(|url| url.contains("invites/MEMBER123?next=0"))
-                .count(),
-            1
+            urls,
+            vec!["https://api.glympse.com/v2/invites/MEMBER123?next=0&debug=true".to_string()]
         );
-        assert!(urls
-            .iter()
-            .any(|url| url == "https://api.glympse.com/v2/invites/MEMBER123"));
     }
 
     #[test]
-    fn builds_caltopo_url_with_encoded_values() {
+    fn applies_group_member_label_hint_to_generic_member_location() {
+        let mut location = LocationFix {
+            lat: 37.345005,
+            lng: -121.960396,
+            accuracy: None,
+            altitude: None,
+            speed: None,
+            heading: None,
+            timestamp_ms: None,
+            source_label: Some("$.response.location".to_string()),
+        };
+
+        apply_source_label_hint(&mut location, Some("Lead One"));
+
+        assert_eq!(location.source_label.as_deref(), Some("Lead One"));
+        assert_eq!(caltopo_id_for_location(&location).expect("id"), "LeadOne");
+    }
+
+    #[test]
+    fn preserves_real_glympse_name_over_group_label_hint() {
+        let mut location = LocationFix {
+            lat: 37.345005,
+            lng: -121.960396,
+            accuracy: None,
+            altitude: None,
+            speed: None,
+            heading: None,
+            timestamp_ms: None,
+            source_label: Some("Trail Medic".to_string()),
+        };
+
+        apply_source_label_hint(&mut location, Some("Member Card Label"));
+
+        assert_eq!(location.source_label.as_deref(), Some("Trail Medic"));
+        assert_eq!(
+            caltopo_id_for_location(&location).expect("id"),
+            "TrailMedic"
+        );
+    }
+
+    #[test]
+    fn builds_caltopo_url_with_glympse_name_id() {
         let settings = base_settings();
         let location = LocationFix {
             lat: 36.47375,
@@ -1812,28 +2100,20 @@ mod tests {
             speed: None,
             heading: None,
             timestamp_ms: None,
-            source_label: None,
+            source_label: Some("Car 1".to_string()),
         };
-        let caltopo_id = caltopo_id_for_location(&settings, &location).expect("id");
+        let caltopo_id = caltopo_id_for_location(&location).expect("id");
         let url = build_caltopo_url(&settings, &location, &caltopo_id);
         assert!(url.contains("/position/report/Sequoia?"));
-        assert!(url.contains("id=CAR1"));
+        assert!(url.contains("id=Car1"));
         assert!(url.contains("lat=36.4737500"));
         assert!(url.contains("lng=-118.8530200"));
         assert!(url.contains("alt=1250.4"));
     }
 
     #[test]
-    fn allows_blank_manual_caltopo_device_id() {
-        let mut settings = base_settings();
-        settings.caltopo_device_id = String::new();
-        assert!(validate_settings(&settings).is_ok());
-    }
-
-    #[test]
-    fn derives_caltopo_id_from_glympse_name_before_legacy_setting() {
-        let mut settings = base_settings();
-        settings.caltopo_device_id = "ManualFallback".to_string();
+    fn derives_caltopo_id_from_glympse_name() {
+        let settings = base_settings();
         let location = LocationFix {
             lat: 37.345005,
             lng: -121.960396,
@@ -1844,7 +2124,7 @@ mod tests {
             timestamp_ms: None,
             source_label: Some("Ben Ko6cnt".to_string()),
         };
-        let caltopo_id = caltopo_id_for_location(&settings, &location).expect("id");
+        let caltopo_id = caltopo_id_for_location(&location).expect("id");
         assert_eq!(caltopo_id, "BenKo6cnt");
 
         let url = build_caltopo_url(&settings, &location, &caltopo_id);
@@ -1852,9 +2132,7 @@ mod tests {
     }
 
     #[test]
-    fn falls_back_to_manual_caltopo_id_for_generic_location_labels() {
-        let mut settings = base_settings();
-        settings.caltopo_device_id = "Manual Fallback".to_string();
+    fn rejects_generic_location_labels_instead_of_inventing_an_id() {
         let location = LocationFix {
             lat: 37.345005,
             lng: -121.960396,
@@ -1865,14 +2143,12 @@ mod tests {
             timestamp_ms: None,
             source_label: Some("$.response.location".to_string()),
         };
-        let caltopo_id = caltopo_id_for_location(&settings, &location).expect("id");
-        assert_eq!(caltopo_id, "ManualFallback");
+        let error = caltopo_id_for_location(&location).expect_err("generic label rejected");
+        assert!(error.contains("Not forwarded"));
     }
 
     #[test]
-    fn uses_default_caltopo_id_when_no_better_identity_exists() {
-        let mut settings = base_settings();
-        settings.caltopo_device_id = String::new();
+    fn rejects_embedded_text_label_instead_of_using_default_id() {
         let location = LocationFix {
             lat: 37.345005,
             lng: -121.960396,
@@ -1883,8 +2159,8 @@ mod tests {
             timestamp_ms: None,
             source_label: Some("embedded text".to_string()),
         };
-        let caltopo_id = caltopo_id_for_location(&settings, &location).expect("id");
-        assert_eq!(caltopo_id, "Glympse");
+        let error = caltopo_id_for_location(&location).expect_err("embedded label rejected");
+        assert!(error.contains("Not forwarded"));
     }
 
     #[test]

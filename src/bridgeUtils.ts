@@ -13,7 +13,7 @@ export type PreflightCheck = {
 
 export type CaltopoIdPreview = {
   value: string;
-  source: "glympse" | "fallback" | "default";
+  source: "glympse" | "waiting" | "missing";
   label: string;
 };
 
@@ -34,7 +34,7 @@ export function buildPreflightChecks(
   settings: BridgeSettings,
   latestLocation?: LocationFix | null
 ): PreflightCheck[] {
-  const idPreview = buildCaltopoIdPreview(settings, latestLocation);
+  const idPreview = buildCaltopoIdPreview(latestLocation);
   return [
     {
       label: settings.glympseSource.trim()
@@ -49,8 +49,11 @@ export function buildPreflightChecks(
       ok: Boolean(settings.caltopoConnectKey.trim())
     },
     {
-      label: `CalTopo track ID: ${idPreview.value}`,
-      ok: true
+      label:
+        latestLocation && idPreview.source === "missing"
+          ? "Latest fix has no usable Glympse name"
+          : `CalTopo IDs: ${idPreview.value}`,
+      ok: !latestLocation || idPreview.source === "glympse"
     },
     {
       label: `Poll interval: ${normalizePollInterval(settings.pollIntervalSecs)} seconds`,
@@ -59,10 +62,7 @@ export function buildPreflightChecks(
   ];
 }
 
-export function buildCaltopoIdPreview(
-  settings: BridgeSettings,
-  latestLocation?: LocationFix | null
-): CaltopoIdPreview {
+export function buildCaltopoIdPreview(latestLocation?: LocationFix | null): CaltopoIdPreview {
   if (latestLocation?.sourceLabel && isUsableGlympseIdentity(latestLocation.sourceLabel)) {
     return {
       value: normalizeCaltopoDeviceId(latestLocation.sourceLabel),
@@ -71,19 +71,18 @@ export function buildCaltopoIdPreview(
     };
   }
 
-  const fallback = normalizeCaltopoDeviceId(settings.caltopoDeviceId);
-  if (fallback) {
+  if (latestLocation) {
     return {
-      value: fallback,
-      source: "fallback",
-      label: "manual fallback"
+      value: "Not forwarded",
+      source: "missing",
+      label: "missing Glympse name"
     };
   }
 
   return {
-    value: "Glympse",
-    source: "default",
-    label: "default fallback"
+    value: "Waiting for Glympse names",
+    source: "waiting",
+    label: "read from each active Glympse user"
   };
 }
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildCaltopoIdPreview,
   buildMissingFields,
+  buildPreflightChecks,
   extractGlympseSourceCode,
   isUsableGlympseIdentity,
   normalizeCaltopoDeviceId,
@@ -13,7 +14,6 @@ function settings(overrides: Partial<BridgeSettings> = {}): BridgeSettings {
   return {
     glympseSource: "https://glympse.com/!ABC123",
     caltopoConnectKey: "Sequoia",
-    caltopoDeviceId: "",
     pollIntervalSecs: 5,
     forwardUnchanged: false,
     includeAltitude: true,
@@ -43,34 +43,38 @@ describe("bridge utility helpers", () => {
     expect(normalizeCaltopoDeviceId(" $ / ")).toBe("");
   });
 
-  it("prefers a real Glympse name over the manual fallback", () => {
-    expect(
-      buildCaltopoIdPreview(settings({ caltopoDeviceId: "Manual Fallback" }), location())
-    ).toEqual({
+  it("previews the CalTopo ID from a real Glympse name", () => {
+    expect(buildCaltopoIdPreview(location())).toEqual({
       value: "BenKo6cnt",
       source: "glympse",
       label: "from latest Glympse user"
     });
   });
 
-  it("uses the manual fallback for generic parsed labels", () => {
-    expect(
-      buildCaltopoIdPreview(
-        settings({ caltopoDeviceId: "Manual Fallback" }),
-        location({ sourceLabel: "$.response.location" })
-      )
-    ).toEqual({
-      value: "ManualFallback",
-      source: "fallback",
-      label: "manual fallback"
+  it("does not invent a CalTopo ID for generic parsed labels", () => {
+    expect(buildCaltopoIdPreview(location({ sourceLabel: "$.response.location" }))).toEqual({
+      value: "Not forwarded",
+      source: "missing",
+      label: "missing Glympse name"
     });
   });
 
-  it("has a deterministic default CalTopo ID when no better ID is known", () => {
-    expect(buildCaltopoIdPreview(settings(), location({ sourceLabel: "embedded text" }))).toEqual({
-      value: "Glympse",
-      source: "default",
-      label: "default fallback"
+  it("fails preflight once the latest fix has no usable Glympse name", () => {
+    expect(
+      buildPreflightChecks(settings(), location({ sourceLabel: "embedded text" })).find((check) =>
+        check.label.includes("Glympse name")
+      )
+    ).toEqual({
+      label: "Latest fix has no usable Glympse name",
+      ok: false
+    });
+  });
+
+  it("waits for Glympse names before previewing a CalTopo ID", () => {
+    expect(buildCaltopoIdPreview()).toEqual({
+      value: "Waiting for Glympse names",
+      source: "waiting",
+      label: "read from each active Glympse user"
     });
   });
 

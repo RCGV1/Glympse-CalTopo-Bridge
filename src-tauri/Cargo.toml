@@ -1,6 +1,6 @@
 [package]
 name = "glympse-caltopo-bridge"
-version = "0.1.0"
+version = "0.1.1"
 description = "Cross-platform Glympse to CalTopo live tracking bridge"
 authors = ["Benjamin Faershtein"]
 license = "GPL-3.0-only"
