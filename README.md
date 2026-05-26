@@ -23,6 +23,24 @@ The bridge is meant for real group tracking: one Glympse group in, many CalTopo 
 5. If named users appear, click **Forward once now** and verify the tracks in CalTopo.
 6. Click **Start bridge** to keep syncing.
 
+## Raspberry Pi OS Install
+
+Raspberry Pi OS support is for 64-bit Pi OS on ARM64. On the Pi, run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/RCGV1/Glympse-CalTopo-Bridge/main/scripts/install-raspi.sh | bash
+```
+
+The installer downloads the latest `*_arm64.deb` release asset and installs it with `apt`, including package dependencies.
+
+Manual install:
+
+```bash
+sudo apt install ./Glympse.CalTopo.Bridge_0.1.4_arm64.deb
+```
+
+Use the `arm64.deb` file for 64-bit Raspberry Pi OS. The `amd64.deb` and `AppImage` files are for Intel/AMD Linux computers, not Raspberry Pi. The project does not currently publish a 32-bit `armhf` Raspberry Pi OS package.
+
 ## Tutorial
 
 ### 1. Prepare CalTopo

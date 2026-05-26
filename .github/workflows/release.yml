@@ -18,18 +18,30 @@ jobs:
         include:
           - platform: macos-latest
             args: --target aarch64-apple-darwin
+            installLinuxDeps: false
+            rustTargets: aarch64-apple-darwin,x86_64-apple-darwin
           - platform: macos-latest
             args: --target x86_64-apple-darwin
+            installLinuxDeps: false
+            rustTargets: aarch64-apple-darwin,x86_64-apple-darwin
           - platform: ubuntu-22.04
             args: ""
+            installLinuxDeps: true
+            rustTargets: ""
+          - platform: ubuntu-22.04-arm
+            args: --bundles deb
+            installLinuxDeps: true
+            rustTargets: ""
           - platform: windows-2022
             args: ""
+            installLinuxDeps: false
+            rustTargets: ""
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v5
 
       - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+        if: matrix.installLinuxDeps
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
@@ -43,7 +55,7 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.rustTargets }}
 
       - name: Cache Rust build output
         uses: swatinem/rust-cache@v2
