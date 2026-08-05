@@ -1,6 +1,6 @@
 {
   "name": "glympse-caltopo-bridge",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Desktop bridge that forwards live Glympse positions to CalTopo live tracking.",
   "license": "GPL-3.0-only",
   "homepage": "https://github.com/RCGV1/Glympse-CalTopo-Bridge#readme",
