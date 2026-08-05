@@ -4,7 +4,10 @@ import {
   buildMissingFields,
   buildPreflightChecks,
   extractGlympseSourceCode,
+  getVisibleTrackedUsers,
   isUsableGlympseIdentity,
+  MAX_VISIBLE_TRACKED_USERS,
+  normalizeMaxFixAge,
   normalizeCaltopoDeviceId,
   normalizePollInterval
 } from "./bridgeUtils";
@@ -15,6 +18,7 @@ function settings(overrides: Partial<BridgeSettings> = {}): BridgeSettings {
     glympseSource: "https://glympse.com/!ABC123",
     caltopoConnectKey: "Sequoia",
     pollIntervalSecs: 5,
+    maxFixAgeSecs: 600,
     forwardUnchanged: false,
     includeAltitude: true,
     ...overrides
@@ -40,6 +44,8 @@ describe("bridge utility helpers", () => {
   it("normalizes CalTopo IDs the same way the backend does", () => {
     expect(normalizeCaltopoDeviceId("Ben Ko6cnt")).toBe("BenKo6cnt");
     expect(normalizeCaltopoDeviceId("BBEV-uqvl")).toBe("BBEVuqvl");
+    expect(normalizeCaltopoDeviceId("C 1")).toBe("C1");
+    expect(normalizeCaltopoDeviceId("S2 6504859116")).toBe("S2");
     expect(normalizeCaltopoDeviceId(" $ / ")).toBe("");
   });
 
@@ -70,11 +76,28 @@ describe("bridge utility helpers", () => {
     });
   });
 
+  it("does not expose the CalTopo connect key in preflight copy", () => {
+    const connectKey = "private-connect-key";
+    const check = buildPreflightChecks(settings({ caltopoConnectKey: connectKey }), location()).find((check) =>
+      check.label.includes("CalTopo connect key")
+    );
+
+    expect(check).toEqual({ label: "CalTopo connect key: configured", ok: true });
+    expect(check?.label).not.toContain(connectKey);
+  });
+
   it("waits for Glympse names before previewing a CalTopo ID", () => {
     expect(buildCaltopoIdPreview()).toEqual({
       value: "Waiting for Glympse names",
       source: "waiting",
       label: "read from each active Glympse user"
+    });
+  });
+
+  it("keeps the CalTopo ID preflight pending until a named Glympse fix is read", () => {
+    expect(buildPreflightChecks(settings()).find((check) => check.label.includes("Waiting for Glympse names"))).toEqual({
+      label: "CalTopo IDs: Waiting for Glympse names",
+      ok: false
     });
   });
 
@@ -90,10 +113,27 @@ describe("bridge utility helpers", () => {
     expect(normalizePollInterval("bad")).toBe(2);
   });
 
+  it("normalizes stale fix windows to at least one minute", () => {
+    expect(normalizeMaxFixAge(30)).toBe(60);
+    expect(normalizeMaxFixAge("900.4")).toBe(900);
+    expect(normalizeMaxFixAge("bad")).toBe(600);
+  });
+
   it("reports only required start fields as missing", () => {
     expect(buildMissingFields(settings({ glympseSource: "", caltopoConnectKey: "" }))).toEqual([
       "a Glympse source",
       "a CalTopo connect key"
     ]);
+  });
+
+  it("bounds the tracked-user display while retaining the hidden count", () => {
+    const locations = Array.from({ length: MAX_VISIBLE_TRACKED_USERS + 3 }, (_, index) =>
+      location({ sourceLabel: `Team ${index + 1}` })
+    );
+
+    expect(getVisibleTrackedUsers(locations)).toEqual({
+      locations: locations.slice(0, MAX_VISIBLE_TRACKED_USERS),
+      hiddenCount: 3
+    });
   });
 });

@@ -3,6 +3,22 @@
   "version": "0.1.4",
   "description": "Desktop bridge that forwards live Glympse positions to CalTopo live tracking.",
   "license": "GPL-3.0-only",
+  "homepage": "https://github.com/RCGV1/Glympse-CalTopo-Bridge#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RCGV1/Glympse-CalTopo-Bridge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/RCGV1/Glympse-CalTopo-Bridge/issues"
+  },
+  "keywords": [
+    "glympse",
+    "caltopo",
+    "live-tracking",
+    "event-operations",
+    "search-and-rescue",
+    "tauri"
+  ],
   "private": false,
   "type": "module",
   "scripts": {

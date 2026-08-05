@@ -1,0 +1,24 @@
+{
+  "name": "caltopo-track-playback",
+  "version": "0.1.0",
+  "description": "Web playback tool for timestamped CalTopo tracks and event markers.",
+  "license": "GPL-3.0-only",
+  "homepage": "https://caltopo-track-playback.vercel.app/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RCGV1/Glympse-CalTopo-Bridge.git",
+    "directory": "playback-tool"
+  },
+  "keywords": [
+    "caltopo",
+    "track-playback",
+    "live-tracking",
+    "event-operations",
+    "map-replay"
+  ],
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.js"
+  }
+}

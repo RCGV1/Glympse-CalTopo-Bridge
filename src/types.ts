@@ -2,6 +2,7 @@ export type BridgeSettings = {
   glympseSource: string;
   caltopoConnectKey: string;
   pollIntervalSecs: number;
+  maxFixAgeSecs: number;
   forwardUnchanged: boolean;
   includeAltitude: boolean;
 };

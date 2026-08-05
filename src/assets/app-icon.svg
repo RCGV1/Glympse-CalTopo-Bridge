@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="G to C polished icon candidate">
+  <defs>
+    <linearGradient id="paper" x1="90" y1="72" x2="940" y2="940" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fffbed"/>
+      <stop offset="0.55" stop-color="#f4efd8"/>
+      <stop offset="1" stop-color="#e6ddb9"/>
+    </linearGradient>
+    <linearGradient id="letter" x1="135" y1="330" x2="890" y2="685" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#042f27"/>
+      <stop offset="1" stop-color="#0b4d36"/>
+    </linearGradient>
+    <linearGradient id="route" x1="392" y1="405" x2="670" y2="650" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#e94e18"/>
+      <stop offset="0.6" stop-color="#ff7118"/>
+      <stop offset="1" stop-color="#f7a11a"/>
+    </linearGradient>
+    <clipPath id="round">
+      <rect x="72" y="72" width="880" height="880" rx="206"/>
+    </clipPath>
+    <filter id="letter-shadow" x="-16%" y="-16%" width="132%" height="138%">
+      <feDropShadow dx="0" dy="16" stdDeviation="16" flood-color="#342d18" flood-opacity="0.16"/>
+    </filter>
+    <filter id="route-shadow" x="-22%" y="-22%" width="144%" height="144%">
+      <feDropShadow dx="0" dy="6" stdDeviation="6" flood-color="#6c390b" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+
+  <rect x="72" y="72" width="880" height="880" rx="206" fill="url(#paper)"/>
+
+  <g clip-path="url(#round)" fill="none" stroke-linecap="round">
+    <path d="M64 190c120-55 238-48 354 20 92 54 184 61 276 21 77-34 160-31 249 8" stroke="#b8c59e" stroke-width="13" opacity="0.50"/>
+    <path d="M54 305c116-42 229-30 338 35 100 60 201 64 303 12 84-43 166-38 247 13" stroke="#d4c9a7" stroke-width="10" opacity="0.50"/>
+    <path d="M62 430c108-43 216-34 326 27 106 59 211 58 315-3 88-51 169-48 243 9" stroke="#8faa78" stroke-width="12" opacity="0.33"/>
+    <path d="M57 560c116-56 236-63 361-21 126 42 236 29 331-40 73-53 142-59 207-17" stroke="#d4c9a7" stroke-width="10" opacity="0.48"/>
+    <path d="M72 702c126-66 248-74 366-24 127 54 245 49 354-15 73-43 132-49 177-18" stroke="#b8c59e" stroke-width="12" opacity="0.45"/>
+    <path d="M116 828c110-34 219-27 328 21 120 53 238 39 354-42" stroke="#d4c9a7" stroke-width="9" opacity="0.46"/>
+  </g>
+
+  <g filter="url(#letter-shadow)" fill="url(#letter)" font-family="Arial Black, Arial, Helvetica, sans-serif" font-size="340" font-weight="900" letter-spacing="0">
+    <text x="126" y="648">G</text>
+    <text x="682" y="648">C</text>
+  </g>
+
+  <g filter="url(#route-shadow)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M392 640L500 412L608 640" stroke="#fff8e8" stroke-width="60"/>
+    <path d="M392 640L500 412L608 640" stroke="url(#route)" stroke-width="30" stroke-dasharray="2 68"/>
+    <path d="M610 640c14-22 28-40 42-56" stroke="#fff8e8" stroke-width="42"/>
+    <path d="M610 640c14-22 28-40 42-56" stroke="#f97316" stroke-width="20"/>
+  </g>
+
+  <g filter="url(#route-shadow)" stroke-linejoin="round">
+    <path d="M686 552l-62 18 33 58z" fill="#fff8e8"/>
+    <path d="M674 565l-38 12 21 36z" fill="#f97316"/>
+  </g>
+
+  <g filter="url(#route-shadow)">
+    <circle cx="392" cy="640" r="36" fill="#fff8e8"/>
+    <circle cx="392" cy="640" r="26" fill="#0b4836"/>
+    <circle cx="392" cy="640" r="15" fill="#ff6b18"/>
+
+    <circle cx="500" cy="412" r="36" fill="#fff8e8"/>
+    <circle cx="500" cy="412" r="26" fill="#0b4836"/>
+    <circle cx="500" cy="412" r="15" fill="#ff6b18"/>
+
+    <circle cx="608" cy="640" r="36" fill="#fff8e8"/>
+    <circle cx="608" cy="640" r="26" fill="#0b4836"/>
+    <circle cx="608" cy="640" r="15" fill="#ff6b18"/>
+  </g>
+
+  <rect x="72" y="72" width="880" height="880" rx="206" fill="none" stroke="#08352c" stroke-width="8" opacity="0.16"/>
+</svg>

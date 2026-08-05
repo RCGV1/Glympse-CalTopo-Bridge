@@ -47,6 +47,13 @@ button:disabled {
   opacity: 0.55;
 }
 
+input:disabled,
+textarea:disabled {
+  background: #edf2f5;
+  color: #627282;
+  cursor: not-allowed;
+}
+
 button.primary {
   border-color: #17694f;
   background: #17694f;
@@ -82,6 +89,30 @@ button.danger {
   justify-content: space-between;
   gap: 24px;
   margin: 0 auto 18px;
+}
+
+.brand-block {
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.brand-icon {
+  width: 68px;
+  height: 68px;
+  border-radius: 18px;
+  box-shadow: 0 10px 24px rgba(21, 36, 51, 0.12);
+}
+
+.eyebrow {
+  margin: 0 0 5px !important;
+  color: #17694f !important;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .topbar h1 {
@@ -139,6 +170,77 @@ button.danger {
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.panel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.panel-heading .panel-title {
+  margin-bottom: 4px;
+}
+
+.panel-heading p {
+  margin: 0;
+  color: #627282;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.security-pill {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid #cae0d7;
+  border-radius: 999px;
+  background: #f1faf6;
+  color: #17694f;
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.metric-card {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid #d2dbe2;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 10px 26px rgba(21, 36, 51, 0.05);
+}
+
+.metric-card svg {
+  color: #17694f;
+  margin-bottom: 8px;
+}
+
+.metric-card span {
+  display: block;
+  color: #17222e;
+  font-size: 20px;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.metric-card p {
+  margin: 4px 0 0;
+  color: #627282;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-transform: uppercase;
 }
 
 .panel-title,
@@ -264,6 +366,35 @@ button.danger {
   margin: 0 0 10px;
 }
 
+.notice {
+  margin: 12px 0;
+  padding: 11px 12px;
+  border: 1px solid #d2dbe2;
+  border-radius: 8px;
+  background: #f8fafb;
+  color: #273542;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.notice.success {
+  border-color: #b9d8c8;
+  background: #f1faf6;
+  color: #17694f;
+}
+
+.notice.error {
+  border-color: #e7b9b9;
+  background: #fff5f5;
+  color: #a13939;
+}
+
+.notice.warn {
+  border-color: #efd0a6;
+  background: #fff8ed;
+  color: #7d5e1b;
+}
+
 .setup-hint {
   margin: 0 0 16px;
   color: #7a5630;
@@ -323,7 +454,7 @@ button.danger {
 
 .preflight-list .missing svg,
 .preflight-list .missing span {
-  color: #a13939;
+  color: #7d5e1b;
 }
 
 .diagnostics-panel {
@@ -481,6 +612,47 @@ button.danger {
   padding: 16px;
 }
 
+.tracked-panel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.tracked-panel-heading .panel-title {
+  margin-bottom: 4px;
+}
+
+.tracked-panel-heading p {
+  margin: 0;
+  color: #627282;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.user-count {
+  display: inline-flex;
+  min-width: 32px;
+  min-height: 28px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #b7cad7;
+  border-radius: 999px;
+  background: #edf5f8;
+  color: #2c6177;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.group-summary {
+  margin: -4px 0 10px;
+  color: #526c60;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .tracked-list {
   display: flex;
   flex-direction: column;
@@ -626,9 +798,38 @@ button.danger {
   font-weight: 700;
 }
 
+.group-empty-state {
+  min-height: 112px;
+  justify-content: flex-start;
+  gap: 11px;
+  padding: 18px;
+  text-align: left;
+}
+
+.group-empty-state svg {
+  flex: 0 0 auto;
+  color: #75958a;
+}
+
+.group-empty-state strong,
+.group-empty-state span {
+  display: block;
+}
+
+.group-empty-state strong {
+  margin-bottom: 3px;
+  color: #394756;
+}
+
+.group-empty-state span {
+  color: #627282;
+  font-size: 13px;
+}
+
 @media (max-width: 1100px) {
   .layout,
-  .current-panel dl {
+  .current-panel dl,
+  .metrics-grid {
     grid-template-columns: 1fr;
   }
 
@@ -645,6 +846,21 @@ button.danger {
 
   .topbar h1 {
     font-size: 26px;
+  }
+
+  .brand-block {
+    grid-template-columns: 52px minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .brand-icon {
+    width: 52px;
+    height: 52px;
+    border-radius: 14px;
+  }
+
+  .panel-heading {
+    flex-direction: column;
   }
 
   .top-actions,

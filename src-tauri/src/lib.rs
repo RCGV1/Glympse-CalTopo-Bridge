@@ -13,6 +13,8 @@ use url::Url;
 
 const GLYMPSE_API_BASE: &str = "https://api.glympse.com/v2/";
 const GLYMPSE_VIEWER_API_KEY: &str = "0SLq661pXHmqdWgI8Yb1";
+const MIN_MAX_FIX_AGE_SECS: u64 = 60;
+const FUTURE_FIX_GRACE_MS: u64 = 120_000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,6 +22,7 @@ pub struct BridgeSettings {
     pub glympse_source: String,
     pub caltopo_connect_key: String,
     pub poll_interval_secs: u64,
+    pub max_fix_age_secs: u64,
     pub forward_unchanged: bool,
     pub include_altitude: bool,
 }
@@ -269,6 +272,19 @@ async fn poll_and_forward(
         };
         let signature = location_signature(location);
 
+        if let Some(error) = freshness_error(location, settings, now_ms()) {
+            forwards.push(ForwardEvent {
+                caltopo_id,
+                source_label: location.source_label.clone(),
+                lat: location.lat,
+                lng: location.lng,
+                status: "failed".to_string(),
+                message: error,
+                timestamp_ms: now_ms(),
+            });
+            continue;
+        }
+
         if !settings.forward_unchanged
             && context
                 .last_signatures
@@ -319,6 +335,34 @@ async fn poll_and_forward(
         forwards,
         message,
     })
+}
+
+fn freshness_error(
+    location: &LocationFix,
+    settings: &BridgeSettings,
+    now_timestamp_ms: u64,
+) -> Option<String> {
+    let Some(fix_timestamp_ms) = location.timestamp_ms else {
+        return Some("Not forwarded: Glympse fix did not include a timestamp".to_string());
+    };
+    if fix_timestamp_ms > now_timestamp_ms.saturating_add(FUTURE_FIX_GRACE_MS) {
+        return Some("Not forwarded: Glympse fix timestamp is in the future".to_string());
+    }
+
+    let max_age_ms = settings
+        .max_fix_age_secs
+        .max(MIN_MAX_FIX_AGE_SECS)
+        .saturating_mul(1000);
+    let age_ms = now_timestamp_ms.saturating_sub(fix_timestamp_ms);
+    if age_ms > max_age_ms {
+        return Some(format!(
+            "Not forwarded: Glympse fix is {} minutes old, above the configured {} minute limit",
+            (age_ms + 59_999) / 60_000,
+            (max_age_ms + 59_999) / 60_000
+        ));
+    }
+
+    None
 }
 
 struct GlympseFetch {
@@ -555,6 +599,9 @@ fn validate_settings(settings: &BridgeSettings) -> Result<(), String> {
     }
     if settings.caltopo_connect_key.trim().is_empty() {
         return Err("CalTopo live-track connect key is required".to_string());
+    }
+    if settings.max_fix_age_secs < MIN_MAX_FIX_AGE_SECS {
+        return Err("Maximum fix age must be at least 60 seconds".to_string());
     }
     Ok(())
 }
@@ -1664,11 +1711,46 @@ fn is_usable_glympse_identity(value: &str) -> bool {
 }
 
 fn normalize_caltopo_device_id(value: &str) -> String {
-    value
+    if let Some(role_id) = leading_tactical_role_id(value) {
+        return role_id;
+    }
+
+    let compact = value
         .trim()
         .chars()
         .filter(|character| character.is_ascii_alphanumeric())
-        .collect()
+        .collect::<String>();
+
+    compact
+}
+
+fn leading_tactical_role_id(value: &str) -> Option<String> {
+    let separated = Regex::new(r"(?i)^\s*(C|B|S)\s*[-_ ]?\s*(\d{1,2})([A-Z]?)(?:[^A-Z0-9]|$)")
+        .ok()?;
+    if let Some(captures) = separated.captures(value) {
+        return tactical_captures_to_id(&captures);
+    }
+
+    let compact = value
+        .trim()
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .collect::<String>();
+    let exact = Regex::new(r"(?i)^(C|B|S)(\d{1,2})([A-Z]?)$").ok()?;
+    let captures = exact.captures(&compact)?;
+    tactical_captures_to_id(&captures)
+}
+
+fn tactical_captures_to_id(captures: &regex::Captures<'_>) -> Option<String> {
+    Some(format!(
+        "{}{}{}",
+        captures.get(1)?.as_str().to_ascii_uppercase(),
+        captures.get(2)?.as_str(),
+        captures
+            .get(3)
+            .map(|value| value.as_str().to_ascii_uppercase())
+            .unwrap_or_default()
+    ))
 }
 
 fn merge_location(locations: &mut Vec<LocationFix>, location: LocationFix) {
@@ -1770,6 +1852,7 @@ mod tests {
             glympse_source: "https://glympse.com/!ABC123".to_string(),
             caltopo_connect_key: "Sequoia".to_string(),
             poll_interval_secs: 5,
+            max_fix_age_secs: 600,
             forward_unchanged: false,
             include_altitude: true,
         }
@@ -2164,9 +2247,48 @@ mod tests {
     }
 
     #[test]
+    fn rejects_missing_stale_and_future_fix_timestamps() {
+        let settings = base_settings();
+        let now = 1_779_500_000_000;
+        let mut location = LocationFix {
+            lat: 37.345005,
+            lng: -121.960396,
+            accuracy: None,
+            altitude: None,
+            speed: None,
+            heading: None,
+            timestamp_ms: None,
+            source_label: Some("Lead One".to_string()),
+        };
+
+        assert_eq!(
+            freshness_error(&location, &settings, now).as_deref(),
+            Some("Not forwarded: Glympse fix did not include a timestamp")
+        );
+
+        location.timestamp_ms = Some(now - 601_000);
+        assert!(
+            freshness_error(&location, &settings, now)
+                .expect("stale")
+                .contains("above the configured 10 minute limit")
+        );
+
+        location.timestamp_ms = Some(now + FUTURE_FIX_GRACE_MS + 1);
+        assert_eq!(
+            freshness_error(&location, &settings, now).as_deref(),
+            Some("Not forwarded: Glympse fix timestamp is in the future")
+        );
+
+        location.timestamp_ms = Some(now - 60_000);
+        assert_eq!(freshness_error(&location, &settings, now), None);
+    }
+
+    #[test]
     fn removes_hyphens_and_spaces_from_caltopo_device_id() {
         assert_eq!(normalize_caltopo_device_id("BBEV-uqvl"), "BBEVuqvl");
         assert_eq!(normalize_caltopo_device_id("Ben Ko6cnt"), "BenKo6cnt");
+        assert_eq!(normalize_caltopo_device_id("C 1"), "C1");
+        assert_eq!(normalize_caltopo_device_id("S2 6504859116"), "S2");
     }
 
     #[test]

@@ -1,6 +1,8 @@
 import type { BridgeLog, BridgeSettings, ForwardEvent, LocationFix } from "./types";
 
 export const MIN_POLL_INTERVAL_SECS = 2;
+export const MIN_MAX_FIX_AGE_SECS = 60;
+export const MAX_VISIBLE_TRACKED_USERS = 24;
 
 export type ActivityItem =
   | { kind: "forward"; timestampMs: number; event: ForwardEvent }
@@ -21,6 +23,12 @@ export function normalizePollInterval(value: unknown): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return MIN_POLL_INTERVAL_SECS;
   return Math.max(MIN_POLL_INTERVAL_SECS, Math.round(parsed));
+}
+
+export function normalizeMaxFixAge(value: unknown): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 600;
+  return Math.max(MIN_MAX_FIX_AGE_SECS, Math.round(parsed));
 }
 
 export function buildMissingFields(settings: BridgeSettings): string[] {
@@ -44,7 +52,7 @@ export function buildPreflightChecks(
     },
     {
       label: settings.caltopoConnectKey.trim()
-        ? `CalTopo connect key: ${settings.caltopoConnectKey.trim()}`
+        ? "CalTopo connect key: configured"
         : "CalTopo connect key is missing",
       ok: Boolean(settings.caltopoConnectKey.trim())
     },
@@ -53,11 +61,15 @@ export function buildPreflightChecks(
         latestLocation && idPreview.source === "missing"
           ? "Latest fix has no usable Glympse name"
           : `CalTopo IDs: ${idPreview.value}`,
-      ok: !latestLocation || idPreview.source === "glympse"
+      ok: idPreview.source === "glympse"
     },
     {
       label: `Poll interval: ${normalizePollInterval(settings.pollIntervalSecs)} seconds`,
       ok: normalizePollInterval(settings.pollIntervalSecs) >= MIN_POLL_INTERVAL_SECS
+    },
+    {
+      label: `Maximum fix age: ${formatDuration(normalizeMaxFixAge(settings.maxFixAgeSecs))}`,
+      ok: normalizeMaxFixAge(settings.maxFixAgeSecs) >= MIN_MAX_FIX_AGE_SECS
     }
   ];
 }
@@ -87,11 +99,17 @@ export function buildCaltopoIdPreview(latestLocation?: LocationFix | null): Calt
 }
 
 export function normalizeCaltopoDeviceId(value: string): string {
-  return value
+  const separated = value.match(/^\s*(C|B|S)\s*[-_ ]?\s*(\d{1,2})([A-Z]?)(?:[^A-Z0-9]|$)/i);
+  if (separated) return `${separated[1].toUpperCase()}${separated[2]}${separated[3].toUpperCase()}`;
+
+  const compact = value
     .trim()
     .split("")
     .filter((character) => /[A-Za-z0-9]/.test(character))
     .join("");
+  const tactical = compact.toUpperCase().match(/^(C|B|S)(\d{1,2})([A-Z]?)$/);
+  if (tactical) return `${tactical[1]}${tactical[2]}${tactical[3]}`;
+  return compact;
 }
 
 export function isUsableGlympseIdentity(value: string): boolean {
@@ -146,6 +164,16 @@ export function formatTrackedUsers(locations: LocationFix[]): string {
     .concat(locations.length > 3 ? ` +${locations.length - 3}` : "");
 }
 
+export function getVisibleTrackedUsers(locations: LocationFix[]): {
+  locations: LocationFix[];
+  hiddenCount: number;
+} {
+  return {
+    locations: locations.slice(0, MAX_VISIBLE_TRACKED_USERS),
+    hiddenCount: Math.max(0, locations.length - MAX_VISIBLE_TRACKED_USERS)
+  };
+}
+
 export function formatForwardName(event: ForwardEvent): string {
   return event.sourceLabel || event.caltopoId;
 }
@@ -180,6 +208,13 @@ export function formatTime(timestampMs: number): string {
 
 export function titleCase(value: string): string {
   return `${value.slice(0, 1).toUpperCase()}${value.slice(1)}`;
+}
+
+export function formatDuration(totalSeconds: number): string {
+  const seconds = normalizeMaxFixAge(totalSeconds);
+  if (seconds % 3600 === 0) return `${seconds / 3600} hour${seconds === 3600 ? "" : "s"}`;
+  if (seconds % 60 === 0) return `${seconds / 60} min`;
+  return `${seconds} seconds`;
 }
 
 export function stringifyError(error: unknown): string {
